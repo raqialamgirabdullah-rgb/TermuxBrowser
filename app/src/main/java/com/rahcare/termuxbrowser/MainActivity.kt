@@ -91,7 +91,9 @@ class MainActivity : Activity() {
             setOnClickListener { if (overlay != null) hideSwitcher() else showSwitcher() }
         }
         bar.addView(countBox)
-        bar.addView(icon("⋮", 24f) { menu(it) }.also { v -> v.setOnClickListener { menu(v) } })
+        val dots = icon("⋮", 24f) {}
+        dots.setOnClickListener { menu(dots) }
+        bar.addView(dots)
         root.addView(bar)
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100; visibility = View.GONE }
         root.addView(progress, LinearLayout.LayoutParams(-1, dp(3)))
