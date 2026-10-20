@@ -32,6 +32,7 @@ class Tab(val web: WebView) {
 }
 
 class MainActivity : Activity() {
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     companion object { const val REFRESH = "com.rahcare.termuxbrowser.REFRESH" }
 
     private val tabs = mutableListOf<Tab>()
@@ -42,6 +43,10 @@ class MainActivity : Activity() {
     private lateinit var countBox: TextView
     private lateinit var progress: ProgressBar
     private var overlay: View? = null
+    private var upd: Updater.Info? = null
+    private var updBusy = false
+    private var pendingInstall = false
+    private lateinit var banner: TextView
 
     private val rx = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
@@ -97,6 +102,11 @@ class MainActivity : Activity() {
         root.addView(bar)
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100; visibility = View.GONE }
         root.addView(progress, LinearLayout.LayoutParams(-1, dp(3)))
+        banner = TextView(this).apply {
+            textSize = 14f; gravity = Gravity.CENTER; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#2563EB"))
+            setPadding(dp(12), dp(10), dp(12), dp(10)); visibility = View.GONE; setOnClickListener { startUpdate() }
+        }
+        root.addView(banner, LinearLayout.LayoutParams(-1, -2))
         content = FrameLayout(this)
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
@@ -118,6 +128,37 @@ class MainActivity : Activity() {
         else registerReceiver(rx, IntentFilter(REFRESH))
         // অনুমতি/ইনস্টল বদলে থাকলে হোম পেজ নতুন করে আঁকি
         cur?.let { if (it.isHome) loadHome(it) }
+        if (pendingInstall && packageManager.canRequestPackageInstalls()) { pendingInstall = false; startUpdate() }
+        val sp = Store.prefs(this)
+        if (System.currentTimeMillis() - sp.getLong("upd_t", 0L) > 30 * 60 * 1000L) {
+            sp.edit().putLong("upd_t", System.currentTimeMillis()).apply()
+            Thread { val i = Updater.check(); runOnUiThread { upd = i?.takeIf { it.v > Updater.curVer(this) }; showBanner() } }.start()
+        } else showBanner()
+    }
+
+    private fun showBanner() {
+        val u = upd
+        if (u == null || updBusy) { if (!updBusy) banner.visibility = View.GONE; return }
+        banner.text = "⬆ নতুন সংস্করণ এসেছে — চাপুন, আপডেট হয়ে যাবে"; banner.visibility = View.VISIBLE
+    }
+
+    private fun startUpdate() {
+        val u = upd ?: return
+        if (updBusy) return
+        if (!packageManager.canRequestPackageInstalls()) {
+            pendingInstall = true
+            Toast.makeText(this, "\"Allow from this source\" চালু করে ফিরে আসুন — আপডেট নিজেই শুরু হবে", Toast.LENGTH_LONG).show()
+            startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            return
+        }
+        updBusy = true; banner.text = "ডাউনলোড হচ্ছে… 0%"
+        Thread {
+            val err = Updater.install(this, u.url) { p -> runOnUiThread { banner.text = if (p < 100) "ডাউনলোড হচ্ছে… $p%" else "ইনস্টল হচ্ছে…" } }
+            runOnUiThread {
+                if (err != null) { updBusy = false; showBanner(); Toast.makeText(this, "আপডেট শুরু হয়নি ($err)", Toast.LENGTH_LONG).show() }
+                else handler.postDelayed({ updBusy = false; showBanner() }, 60000L)
+            }
+        }.start()
     }
 
     override fun onPause() {
@@ -325,6 +366,7 @@ class MainActivity : Activity() {
     // ---------- মেনু ----------
     private fun menu(anchor: View) {
         val m = PopupMenu(this, anchor)
+        if (upd != null) m.menu.add(0, 8, 0, "⬆ অ্যাপ আপডেট করুন")
         m.menu.add(0, 1, 0, "নতুন ট্যাব")
         m.menu.add(0, 2, 1, "রিলোড")
         m.menu.add(0, 3, 2, "ডেস্কটপ সাইট").apply { isCheckable = true; isChecked = desktop }
@@ -334,6 +376,7 @@ class MainActivity : Activity() {
         m.menu.add(0, 7, 6, "ব্রাউজিং ডেটা মুছুন")
         m.setOnMenuItemClickListener {
             when (it.itemId) {
+                8 -> startUpdate()
                 1 -> { newTab(null); openHome() }
                 2 -> cur?.let { t -> if (t.isHome) loadHome(t) else t.web.reload() }
                 3 -> { desktop = !desktop; Store.prefs(this).edit().putBoolean("desktop", desktop).apply()
