@@ -4,24 +4,25 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 
-/** ব্যাকগ্রাউন্ড কমান্ডের আউটপুট ধরে রাখে */
+/** ব্যাকগ্রাউন্ড কমান্ডের ফলাফল ধরে Jobs-এ রাখে */
 class ResultReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
-        val title = i.getStringExtra("title") ?: "কমান্ড"
+        val job = Jobs.find(i.getStringExtra("job") ?: return) ?: return
         val b = i.getBundleExtra("result")
-        val txt = if (b == null) "(আউটপুট নেই)" else {
-            val out = b.getString("stdout", "")
-            val err = b.getString("stderr", "")
+        if (b == null) { job.status = "fail"; job.out = "(আউটপুট নেই)" }
+        else {
+            val out = b.getString("stdout", "") ?: ""
+            val err = b.getString("stderr", "") ?: ""
             val code = b.getInt("exitCode", -1)
-            val em = b.getString("errmsg", "")
-            buildString {
-                append(out)
-                if (!err.isNullOrBlank()) append("\n[stderr]\n").append(err)
-                if (!em.isNullOrBlank()) append("\n[ত্রুটি] ").append(em)
-                append("\n(exit $code)")
-            }
+            val em = b.getString("errmsg", "") ?: ""
+            job.status = if (code == 0 && em.isBlank()) "ok" else "fail"
+            job.out = buildString {
+                append(out.takeLast(3000))
+                if (err.isNotBlank()) append("\n").append(err.takeLast(1500))
+                if (em.isNotBlank()) append("\n[ত্রুটি] ").append(em)
+                append("\n(exit ").append(code).append(")")
+            }.trim()
         }
-        Store.setOut(c, "▶ $title\n$txt")
         c.sendBroadcast(Intent(MainActivity.REFRESH).setPackage(c.packageName))
     }
 }

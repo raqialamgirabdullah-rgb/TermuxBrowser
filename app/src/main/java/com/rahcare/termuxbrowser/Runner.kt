@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 
 /** Termux-এর RUN_COMMAND ইন্টেন্ট দিয়ে কমান্ড চালায় */
 object Runner {
@@ -30,23 +31,23 @@ object Runner {
         i.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", cmd.script))
         i.putExtra("com.termux.RUN_COMMAND_WORKDIR", HOME)
         i.putExtra("com.termux.RUN_COMMAND_BACKGROUND", cmd.background)
-        if (!cmd.background) i.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
+        var job: Job? = null
         if (cmd.background) {
-            val r = Intent(c, ResultReceiver::class.java).putExtra("title", cmd.title)
-            val pi = PendingIntent.getBroadcast(
-                c, cmd.id.hashCode(), r, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-            )
+            job = Jobs.start(cmd.title)
+            val r = Intent(c, ResultReceiver::class.java).setData(Uri.parse("job://${job.key}")).putExtra("job", job.key)
+            val pi = PendingIntent.getBroadcast(c, 0, r, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
             i.putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", pi)
-        }
+        } else i.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
         return try {
             if (android.os.Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i)
             null
         } catch (e: SecurityException) {
+            job?.status = "fail"; job?.out = "অনুমতি নেই"
             "অনুমতি নেই। Termux-এ চালান: echo 'allow-external-apps=true' >> ~/.termux/termux.properties, তারপর Termux রিস্টার্ট করুন"
         } catch (e: ActivityNotFoundException) {
-            "Termux সার্ভিস পাওয়া যায়নি"
+            job?.status = "fail"; "Termux সার্ভিস পাওয়া যায়নি"
         } catch (e: Exception) {
-            "ত্রুটি: ${e.message}"
+            job?.status = "fail"; "ত্রুটি: ${e.message}"
         }
     }
 }
