@@ -36,6 +36,13 @@ object Live {
         return "mkdir -p \"\$HOME/.tb\" 2>/dev/null\n" +
             "L=\"\$HOME/.tb/$k.log\"; : > \"\$L\"\n" +
             "termux-wake-lock 2>/dev/null\n" +
+            // pkg প্রতিবার সব মিরর পরীক্ষা করে (ধীর নেটে বহু মিনিট); তাই pkg-কে সরাসরি apt দিয়ে বদলাই
+            "export DEBIAN_FRONTEND=noninteractive\n" +
+            "pkg() { c=\"\$1\"; shift; case \"\$c\" in\n" +
+            "update|up) apt update \"\$@\" ;;\n" +
+            "upgrade|full-upgrade) apt -o Dpkg::Options::=--force-confold upgrade \"\$@\" ;;\n" +
+            "install|i|add) apt -o Dpkg::Options::=--force-confold install \"\$@\" ;;\n" +
+            "*) command pkg \"\$c\" \"\$@\" ;; esac; }\n" +
             "FW=\n" +
             "if (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null; then\n" +
             "exec 3<>/dev/tcp/127.0.0.1/$port\n" +
