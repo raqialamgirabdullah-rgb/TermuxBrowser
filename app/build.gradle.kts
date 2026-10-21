@@ -15,11 +15,22 @@ android {
         versionName = "0.1"
     }
 
+    // স্থায়ী সাইনিং চাবি: ফাইলটা CI-তে GitHub Secrets থেকে বসে, রিপোতে থাকে না। তাই প্রতিটি বিল্ড একই চাবিতে সাইন হয়
+    // এবং আগেরটার ওপর আপডেট হিসেবে বসে
+    signingConfigs {
+        create("fixed") {
+            storeFile = file("release.keystore")
+            storePassword = System.getenv("KS_PASSWORD")
+            keyAlias = "termuxbrowser"
+            keyPassword = System.getenv("KS_PASSWORD")
+            storeType = "pkcs12"
+        }
+    }
+
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
-            // ওপেন-সোর্স প্রজেক্ট: CI-তে ডিবাগ কী দিয়ে সাইন হয়, তাই প্রতিটি বিল্ড আগেরটার ওপর আপডেট হয়
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("fixed")
         }
     }
     compileOptions {
