@@ -72,6 +72,8 @@ object Store {
         // ওয়েব-টার্মিনাল: Termux-এ ttyd চালু হয়, তারপর অ্যাপ নতুন ট্যাবে খোলে। শুধু 127.0.0.1-এ, পাসওয়ার্ডসহ (@@WEBPW@@ অ্যাপ বসায়)
         Cmd("d12", "🌐 ওয়েব-টার্মিনাল (ট্যাবে পূর্ণ টার্মিনাল)",
             "pkg install -y ttyd && { pkill -x ttyd 2>/dev/null; nohup setsid ttyd -W -i 127.0.0.1 -p 7681 -c tb:@@WEBPW@@ bash -l >/dev/null 2>&1 & sleep 2; echo 'ওয়েব-টার্মিনাল চালু — নতুন ট্যাব খুলছে'; }"),
+        Cmd("d13", "⏹ আটকে থাকা প্যাকেজ কাজ থামান",
+            "pkill -x apt 2>/dev/null; pkill -x apt-get 2>/dev/null; pkill -x dpkg 2>/dev/null; sleep 1; dpkg --configure -a --force-confold 2>&1 | tail -5; echo 'থামানো হয়েছে — এখন নতুন কমান্ড চালাতে পারেন'"),
         Cmd("d11", "কম্পিউটার মোড বন্ধ", "pkill -f openbox; pkill -f tint2; pkill -f termux-x11; echo বন্ধ হয়েছে"),
     )
 
