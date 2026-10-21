@@ -139,7 +139,7 @@ class MainActivity : Activity() {
             textSize = 12f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.parseColor("#374151"))
             background = bg(Color.WHITE, 6, Color.parseColor("#374151"))
             layoutParams = LinearLayout.LayoutParams(dp(26), dp(26)).apply { setMargins(dp(8), 0, dp(8), 0) }
-            setOnClickListener { if (overlay?.parent != null) hideSwitcher() else { overlay = null; showSwitcher() } }
+            setOnClickListener { val m = this@MainActivity; if (m.overlay?.parent != null) m.hideSwitcher() else { m.overlay = null; m.showSwitcher() } }
         }
         bar.addView(countBox)
         val dots = icon("⋮", 24f) {}
