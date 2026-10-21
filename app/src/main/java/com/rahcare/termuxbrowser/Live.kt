@@ -31,9 +31,10 @@ object Live {
     /** pkg-র ধীর মিরর-পরীক্ষা এড়াতে pkg-কে apt-এ বদলায় (ব্যাকগ্রাউন্ড ও Termux-পর্দা দুই ক্ষেত্রেই) */
     const val PKG_SHIM = "export DEBIAN_FRONTEND=noninteractive\n" +
         "pkg() { c=\"\$1\"; shift; case \"\$c\" in\n" +
-        "update|up) apt update \"\$@\" ;;\n" +
-        "upgrade|full-upgrade) apt -o Dpkg::Options::=--force-confold upgrade \"\$@\" ;;\n" +
-        "install|i|add) apt -o Dpkg::Options::=--force-confold install \"\$@\" ;;\n" +
+        // আগের কাটা-পড়া ইনস্টলের জের ("dpkg was interrupted") নিজে সারিয়ে নেয়
+        "update|up) dpkg --configure -a --force-confold >/dev/null 2>&1; apt update \"\$@\" ;;\n" +
+        "upgrade|full-upgrade) dpkg --configure -a --force-confold >/dev/null 2>&1; apt -o Dpkg::Options::=--force-confold upgrade \"\$@\" ;;\n" +
+        "install|i|add) dpkg --configure -a --force-confold >/dev/null 2>&1; apt -o Dpkg::Options::=--force-confold install \"\$@\" ;;\n" +
         "*) command pkg \"\$c\" \"\$@\" ;; esac; }\n"
 
     fun wrap(job: Job, script: String): String {
@@ -45,12 +46,7 @@ object Live {
             "L=\"\$HOME/.tb/$k.log\"; : > \"\$L\"\n" +
             "termux-wake-lock 2>/dev/null\n" +
             // pkg প্রতিবার সব মিরর পরীক্ষা করে (ধীর নেটে বহু মিনিট); তাই pkg-কে সরাসরি apt দিয়ে বদলাই
-            "export DEBIAN_FRONTEND=noninteractive\n" +
-            "pkg() { c=\"\$1\"; shift; case \"\$c\" in\n" +
-            "update|up) apt update \"\$@\" ;;\n" +
-            "upgrade|full-upgrade) apt -o Dpkg::Options::=--force-confold upgrade \"\$@\" ;;\n" +
-            "install|i|add) apt -o Dpkg::Options::=--force-confold install \"\$@\" ;;\n" +
-            "*) command pkg \"\$c\" \"\$@\" ;; esac; }\n" +
+            PKG_SHIM +
             "FW=\n" +
             "if (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null; then\n" +
             "exec 3<>/dev/tcp/127.0.0.1/$port\n" +
