@@ -49,7 +49,7 @@ object Store {
 
     private val defaults = listOf(
         Cmd("d1", "প্যাকেজ আপডেট", "pkg update -y && pkg upgrade -y"),
-        Cmd("d2", "স্টোরেজ অনুমতি", "termux-setup-storage"),
+        Cmd("d2", "স্টোরেজ অনুমতি", "termux-setup-storage", false),
         Cmd("d3", "Python ইনস্টল", "pkg install -y python"),
         Cmd("d4", "Git ইনস্টল", "pkg install -y git"),
         Cmd("d5", "Node.js ইনস্টল", "pkg install -y nodejs"),
@@ -61,7 +61,7 @@ object Store {
             "pkg install -y x11-repo && pkg install -y termux-x11-nightly openbox tint2 xterm pcmanfm && " +
             "pkill -f termux-x11 2>/dev/null; (termux-x11 :0 >/dev/null 2>&1 &) ; sleep 3; " +
             "am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1; " +
-            "export DISPLAY=:0; (tint2 >/dev/null 2>&1 &); exec openbox-session"),
+            "export DISPLAY=:0; (tint2 >/dev/null 2>&1 &); exec openbox-session", false),
         Cmd("d11", "কম্পিউটার মোড বন্ধ", "pkill -f openbox; pkill -f tint2; pkill -f termux-x11; echo বন্ধ হয়েছে"),
     )
 
@@ -79,6 +79,8 @@ object Store {
         var changed = false
         // আগের সংস্করণে সব কমান্ড Termux স্ক্রিনে চলত — এখন ডিফল্ট ব্যাকগ্রাউন্ড
         if (sp(c).getInt("ver", 1) < 2) { out.forEach { it.background = true }; changed = true }
+        // স্টোরেজ অনুমতি ও কম্পিউটার মোডে Termux-এর আসল পর্দা লাগে (Android-এর অনুমতি-পর্দা/ডেস্কটপ), ব্যাকগ্রাউন্ডে চললে কিছুই হয় না
+        if (sp(c).getInt("ver", 1) < 3) { out.filter { it.id == "d2" || it.id == "d10" }.forEach { it.background = false }; changed = true }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -87,7 +89,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 2)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 3)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 
