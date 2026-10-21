@@ -23,6 +23,17 @@ object Runner {
         c.checkSelfPermission("com.termux.permission.RUN_COMMAND") == PackageManager.PERMISSION_GRANTED
 
     /** (কাজ, ত্রুটি): ত্রুটি null হলে সফল; ব্যাকগ্রাউন্ড কমান্ড হলে কাজটাও ফেরত আসে (নতুন ট্যাবে দেখানোর জন্য) */
+    /** অ্যাপ নতুন করে চালু হলে চলমান কাজের লগ আবার অ্যাপে স্ট্রিম করতে বলে */
+    fun attach(c: Context, job: Job) {
+        if (!installed(c) || !hasPermission(c)) return
+        val i = Intent(ACTION).setClassName(TERMUX, SERVICE)
+        i.putExtra("com.termux.RUN_COMMAND_PATH", BASH)
+        i.putExtra("com.termux.RUN_COMMAND_WORKDIR", HOME)
+        i.putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
+        i.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", Live.attach(job)))
+        try { if (android.os.Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i) } catch (_: Exception) {}
+    }
+
     fun run(c: Context, cmd: Cmd): Pair<Job?, String?> {
         if (!installed(c)) return Pair(null, "Termux ইনস্টল করা নেই (F-Droid থেকে ইনস্টল করুন)")
         if (!hasPermission(c)) return Pair(null, "Termux-এর RUN_COMMAND অনুমতি দেওয়া নেই")

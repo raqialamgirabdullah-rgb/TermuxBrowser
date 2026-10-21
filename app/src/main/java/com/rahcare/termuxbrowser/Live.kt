@@ -45,7 +45,7 @@ object Live {
         // আউটপুট আগে ফাইলে লেখা হয়, তাই অ্যাপ মিনিমাইজ/ফ্রিজ হলেও কমান্ড আটকায় না;
         // tail আলাদা করে সেটা অ্যাপে পাঠায় (অ্যাপ ফ্রিজ থাকলে শুধু tail থামে, কমান্ড নয়)
         return "mkdir -p \"\$HOME/.tb\" 2>/dev/null\n" +
-            "L=\"\$HOME/.tb/$k.log\"; : > \"\$L\"\n" +
+            "L=\"\$HOME/.tb/$k.log\"; P=\"\$HOME/.tb/$k.pid\"; : > \"\$L\"; echo \$\$ > \"\$P\"\n" +
             "termux-wake-lock 2>/dev/null\n" +
             // pkg প্রতিবার সব মিরর পরীক্ষা করে (ধীর নেটে বহু মিনিট); তাই pkg-কে সরাসরি apt দিয়ে বদলাই
             PKG_SHIM +
@@ -62,8 +62,25 @@ object Live {
             "if [ -n \"\$FW\" ]; then sleep 2; kill \$FW 2>/dev/null; fi\n" +
             "termux-wake-unlock 2>/dev/null\n" +
             "tail -c 8000 \"\$L\" | sed '/^@@EXIT/d'\n" +
-            "rm -f \"\$L\"\n" +
+            "rm -f \"\$P\"\n" +
+            // লগ রেখে দিই (অ্যাপ আপডেটের পর আবার দেখানোর জন্য), শুধু সবচেয়ে নতুন ১৫টা রাখি
+            "n=0; for f in \$(ls -t \"\$HOME\"/.tb/*.log 2>/dev/null); do n=\$((n+1)); [ \$n -gt 15 ] && rm -f \"\$f\"; done\n" +
             "exit \$c\n"
+    }
+
+    /** অ্যাপ নতুন করে চালু হওয়ার পর চলমান/শেষ-হওয়া কাজের লগ আবার অ্যাপে পাঠায় (লগ ফাইল থেকে, শুরু থেকে) */
+    fun attach(job: Job): String {
+        val port = ensure()
+        val k = job.key
+        return "L=\"\$HOME/.tb/$k.log\"; P=\"\$HOME/.tb/$k.pid\"\n" +
+            "exec 3<>/dev/tcp/127.0.0.1/$port || exit 1\n" +
+            "echo \"@@KEY:$k\" >&3\n" +
+            "if [ ! -f \"\$L\" ]; then echo '@@LOST' >&3; exit 0; fi\n" +
+            "if [ -f \"\$P\" ] && kill -0 \"\$(cat \"\$P\")\" 2>/dev/null; then\n" +
+            "tail -n +1 -f --pid=\"\$(cat \"\$P\")\" \"\$L\" >&3\n" +
+            "sleep 1; grep '^@@EXIT' \"\$L\" >&3\n" +
+            "else cat \"\$L\" >&3; fi\n" +
+            "exec 3>&-\n"
     }
 
     private fun finish(job: Job, code: Int) {
@@ -79,15 +96,20 @@ object Live {
             val first = r.readLine() ?: return
             if (!first.startsWith("@@KEY:")) return
             job = Jobs.find(first.removePrefix("@@KEY:")) ?: return
+            if (job.reattach) { job.out = ""; job.reattach = false }
             val buf = CharArray(4096)
             while (true) {
                 val n = r.read(buf)
                 if (n < 0) break
                 job.out = (job.out + String(buf, 0, n)).takeLast(60000)
                 var done = false
+                if (job.out.contains("@@LOST")) {
+                    job.out = "(এই কাজের লগ পাওয়া যায়নি — সম্ভবত অনেক আগের বা আপডেটের আগের সংস্করণে চালু হয়েছিল)"
+                    job.status = "fail"; job.end = System.currentTimeMillis(); done = true
+                }
                 exit.find(job.out)?.let { m ->
                     job.out = job.out.replace(m.value, "")
-                    finish(job, m.groupValues[1].toInt()); done = true
+                    if (job.status == "running") { finish(job, m.groupValues[1].toInt()); done = true }
                 }
                 val now = System.currentTimeMillis()
                 if (done || now - job.lastPush > 150) {

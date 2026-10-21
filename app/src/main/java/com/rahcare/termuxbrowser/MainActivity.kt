@@ -180,6 +180,7 @@ class MainActivity : Activity() {
         askBackgroundSetup()
         if (pendingInstall && packageManager.canRequestPackageInstalls()) { pendingInstall = false; startUpdate() }
         handler.removeCallbacks(updCheck); updCheck.run()
+        handler.removeCallbacks(jobSaver); handler.postDelayed(jobSaver, 5000L)
     }
 
     // কোনো সময়ের বাধা নেই: অ্যাপ খুললেই খোঁজে, আর সামনে থাকলে প্রতি ২০ সেকেন্ডে আবার খোঁজে
@@ -217,7 +218,7 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
-        handler.removeCallbacks(updCheck)
+        handler.removeCallbacks(updCheck); handler.removeCallbacks(jobSaver)
         try { unregisterReceiver(rx) } catch (_: Exception) {}
         Live.onUpdate = null
         save()
@@ -575,7 +576,9 @@ class MainActivity : Activity() {
         val a = JSONArray()
         val keep = tabs.filter { it.jobKey == null }
         keep.forEach { a.put(if (it.isHome || it.url.isBlank()) "home" else it.url) }
-        Store.prefs(this).edit().putString("tabs", a.toString()).putInt("cur", maxOf(0, keep.indexOf(cur))).apply()
+        val jt = JSONArray(); tabs.forEach { t -> t.jobKey?.let { jt.put(it) } }
+        Store.prefs(this).edit().putString("tabs", a.toString()).putInt("cur", maxOf(0, keep.indexOf(cur))).putString("jobtabs", jt.toString()).apply()
+        Jobs.save(this)
     }
 
     private fun restore() {
@@ -589,6 +592,20 @@ class MainActivity : Activity() {
             val c = Store.prefs(this).getInt("cur", 0)
             if (tabs.isNotEmpty()) select(tabs[c.coerceIn(0, tabs.size - 1)])
         } catch (_: Exception) {}
+        // কাজের ট্যাব ও চলমান কাজ ফিরিয়ে আনি: লগ থেকে আবার লাইভ স্ট্রিম শুরু
+        try {
+            Jobs.load(this)
+            val keepCur = cur
+            val jt = JSONArray(Store.prefs(this).getString("jobtabs", "[]"))
+            for (i in 0 until jt.length()) Jobs.find(jt.getString(i))?.let { openJobTab(it) }
+            keepCur?.let { select(it) }
+            Jobs.list.filter { it.status == "running" }.forEach { it.reattach = true; Runner.attach(this, it) }
+            if (Jobs.running() > 0) KeepAliveService.start(this)
+        } catch (_: Exception) {}
+    }
+
+    private val jobSaver = object : Runnable {
+        override fun run() { Jobs.save(this@MainActivity); handler.postDelayed(this, 5000L) }
     }
 
     @Deprecated("Deprecated in Java")

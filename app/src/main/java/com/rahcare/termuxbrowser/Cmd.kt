@@ -13,6 +13,7 @@ data class Job(val key: String, val title: String, var status: String, var out: 
     var script = ""
     var pct = -1          // আউটপুটে পাওয়া শেষ "NN%" (না পেলে -১)
     @Volatile var lastPush = 0L
+    @Volatile var reattach = false   // অ্যাপ নতুন করে চালুর পর লগ থেকে আবার স্ট্রিম নেওয়া হচ্ছে
 
     private val ansi = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]|\u001B\\][^\u0007]*\u0007")
     private val percent = Regex("(\\d{1,3})\\s?%")
@@ -41,6 +42,33 @@ object Jobs {
         list.add(j); if (list.size > 30) list.removeAt(0); return j
     }
     fun find(key: String) = list.firstOrNull { it.key == key }
+
+    /** কাজের তালিকা সেভ করে, যাতে অ্যাপ বন্ধ/আপডেট হলেও ট্যাব ও অবস্থা হারায় না */
+    fun save(c: Context) {
+        try {
+            val a = JSONArray()
+            synchronized(list) {
+                list.forEach { j ->
+                    a.put(JSONObject().put("k", j.key).put("t", j.title).put("st", j.status).put("o", j.out.takeLast(20000))
+                        .put("tm", j.time).put("e", j.end).put("s", j.script))
+                }
+            }
+            Store.prefs(c).edit().putString("jobs", a.toString()).apply()
+        } catch (_: Exception) {}
+    }
+
+    fun load(c: Context) {
+        try {
+            val a = JSONArray(Store.prefs(c).getString("jobs", "[]"))
+            for (i in 0 until a.length()) {
+                val o = a.getJSONObject(i)
+                if (find(o.getString("k")) != null) continue
+                val j = Job(o.getString("k"), o.getString("t"), o.getString("st"), o.optString("o"), o.getLong("tm"))
+                j.end = o.optLong("e"); j.script = o.optString("s"); j.refreshPct()
+                list.add(j)
+            }
+        } catch (_: Exception) {}
+    }
     fun running() = list.count { it.status == "running" }
 }
 
