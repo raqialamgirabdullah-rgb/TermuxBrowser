@@ -253,6 +253,10 @@ class MainActivity : Activity() {
                 }
                 return true
             }
+            override fun onReceivedHttpAuthRequest(v: WebView, h: HttpAuthHandler, host: String, realm: String) {
+                // শুধু নিজের ফোনের ওয়েব-টার্মিনালের জন্য পাসওয়ার্ড দিই
+                if (host == "127.0.0.1") h.proceed("tb", webPw()) else h.cancel()
+            }
             override fun onPageStarted(v: WebView, u: String, f: Bitmap?) { t.url = u; if (t === cur) updateBar() }
             override fun onPageFinished(v: WebView, u: String) {
                 t.url = u; if (t.isHome) t.title = "Termux হোম" else if (t.jobKey == null && !v.title.isNullOrBlank()) t.title = v.title!!
@@ -352,6 +356,31 @@ class MainActivity : Activity() {
     // ---------- Termux ----------
     private var askedRun = false
 
+    private fun webPw(): String {
+        val sp = Store.prefs(this)
+        var p = sp.getString("webpw", null)
+        if (p == null) {
+            val chars = "abcdefghijkmnpqrstuvwxyz23456789"; val r = java.security.SecureRandom()
+            p = (1..16).map { chars[r.nextInt(chars.length)] }.joinToString("")
+            sp.edit().putString("webpw", p).apply()
+        }
+        return p
+    }
+
+    /** ttyd চালু হলে (পোর্ট ৭৬৮১ খুললে) নতুন ট্যাবে টার্মিনাল খোলে */
+    private fun waitWebTerm() {
+        Thread {
+            var up = false
+            for (i in 1..120) {
+                try { java.net.Socket().use { it.connect(java.net.InetSocketAddress("127.0.0.1", 7681), 400) }; up = true; break } catch (_: Exception) { Thread.sleep(1000) }
+            }
+            runOnUiThread {
+                if (up) { newTab(null); go("http://127.0.0.1:7681/") }
+                else Toast.makeText(this, "ওয়েব-টার্মিনাল চালু হয়নি — কাজের ট্যাবে ত্রুটি দেখুন", Toast.LENGTH_LONG).show()
+            }
+        }.start()
+    }
+
     /** Termux-এর RUN_COMMAND অনুমতি রানটাইমে চায়; নতুন ইনস্টলে এটা না দিলে কোনো আইটেম চলে না */
     private fun askRunPermission(force: Boolean = false) {
         if (!Runner.installed(this) || Runner.hasPermission(this)) return
@@ -394,7 +423,9 @@ class MainActivity : Activity() {
                 val cmd = Store.all(this).firstOrNull { it.id == id }
                 if (cmd == null) { Toast.makeText(this, "কমান্ড পাওয়া যায়নি, হোম রিফ্রেশ করুন", Toast.LENGTH_SHORT).show(); return }
                 if (Runner.installed(this) && !Runner.hasPermission(this)) { askRunPermission(true); return }
-                val (job, err) = Runner.run(this, cmd)
+                val run = if (cmd.id == "d12") cmd.copy(script = cmd.script.replace("@@WEBPW@@", webPw())) else cmd
+                val (job, err) = Runner.run(this, run)
+                if (err == null && cmd.id == "d12") waitWebTerm()
                 if (err != null) AlertDialog.Builder(this).setTitle("চালানো যায়নি").setMessage(err).setPositiveButton("ঠিক আছে", null).show()
                 else if (job != null) openJobTab(job)
                 else Toast.makeText(this, "Termux স্ক্রিনে চলছে: ${cmd.title}", Toast.LENGTH_SHORT).show()
