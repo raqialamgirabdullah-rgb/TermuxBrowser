@@ -174,6 +174,7 @@ class MainActivity : Activity() {
         // অনুমতি/ইনস্টল বদলে থাকলে হোম পেজ নতুন করে আঁকি
         cur?.let { if (it.isHome) loadHome(it) }
         scheduleRefresh()
+        askRunPermission()
         if (pendingInstall && packageManager.canRequestPackageInstalls()) { pendingInstall = false; startUpdate() }
         val sp = Store.prefs(this)
         if (System.currentTimeMillis() - sp.getLong("upd_t", 0L) > 30 * 60 * 1000L) {
@@ -325,6 +326,25 @@ class MainActivity : Activity() {
     }
 
     // ---------- Termux ----------
+    private var askedRun = false
+
+    /** Termux-এর RUN_COMMAND অনুমতি রানটাইমে চায়; নতুন ইনস্টলে এটা না দিলে কোনো আইটেম চলে না */
+    private fun askRunPermission(force: Boolean = false) {
+        if (!Runner.installed(this) || Runner.hasPermission(this)) return
+        if (askedRun && !force) return
+        askedRun = true
+        try { requestPermissions(arrayOf("com.termux.permission.RUN_COMMAND"), 77) } catch (_: Exception) {}
+    }
+
+    override fun onRequestPermissionsResult(rc: Int, p: Array<out String>, g: IntArray) {
+        super.onRequestPermissionsResult(rc, p, g)
+        if (rc == 77) {
+            cur?.let { if (it.isHome) loadHome(it) }
+            if (g.isNotEmpty() && g[0] != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                Toast.makeText(this, "অনুমতি না দিলে আইটেম চলবে না: ⋮ › অ্যাপ অনুমতি থেকে দিন", Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun termuxAction(u: Uri, t: Tab) {
         val segs = u.pathSegments.ifEmpty { listOf(u.host ?: "") }
         val kind = u.host ?: ""
@@ -332,6 +352,7 @@ class MainActivity : Activity() {
         when (kind) {
             "run" -> {
                 val cmd = Store.all(this).firstOrNull { it.id == id } ?: return
+                if (Runner.installed(this) && !Runner.hasPermission(this)) { askRunPermission(true); return }
                 val (job, err) = Runner.run(this, cmd)
                 if (err != null) AlertDialog.Builder(this).setTitle("চালানো যায়নি").setMessage(err).setPositiveButton("ঠিক আছে", null).show()
                 else if (job != null) openJobTab(job)
