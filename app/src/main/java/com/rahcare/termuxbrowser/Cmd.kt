@@ -61,7 +61,7 @@ object Store {
             "pkg install -y x11-repo && pkg install -y termux-x11-nightly openbox tint2 xterm pcmanfm && " +
             "pkill -f termux-x11 2>/dev/null; (termux-x11 :0 >/dev/null 2>&1 &) ; sleep 3; " +
             "am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1; " +
-            "export DISPLAY=:0; (tint2 >/dev/null 2>&1 &); exec openbox-session", false),
+            "export DISPLAY=:0; (tint2 >/dev/null 2>&1 &); exec openbox-session"),
         // ওয়েব-টার্মিনাল: Termux-এ ttyd চালু হয়, তারপর অ্যাপ নতুন ট্যাবে খোলে। শুধু 127.0.0.1-এ, পাসওয়ার্ডসহ (@@WEBPW@@ অ্যাপ বসায়)
         Cmd("d12", "🌐 ওয়েব-টার্মিনাল (ট্যাবে পূর্ণ টার্মিনাল)",
             "pkg install -y ttyd && { pkill -x ttyd 2>/dev/null; nohup setsid ttyd -W -i 127.0.0.1 -p 7681 -c tb:@@WEBPW@@ bash -l >/dev/null 2>&1 & sleep 2; echo 'ওয়েব-টার্মিনাল চালু — নতুন ট্যাব খুলছে'; }"),
@@ -86,6 +86,8 @@ object Store {
         if (sp(c).getInt("ver", 1) < 3) { out.filter { it.id == "d2" || it.id == "d10" }.forEach { it.background = false }; changed = true }
         // পুরনো "ip" কমান্ড Termux-এ নেই (ip: command not found) — নতুনটা দিয়ে বদলাই
         if (sp(c).getInt("ver", 1) < 4) { out.filter { it.id == "d8" && it.script == "ip -4 addr | grep inet" }.forEach { it.script = defaults.first { d -> d.id == "d8" }.script }; changed = true }
+        // কম্পিউটার মোড আবার ব্রাউজারের ট্যাবেই চলবে (Termux পর্দায় নিয়ে যাবে না)
+        if (sp(c).getInt("ver", 1) < 5) { out.filter { it.id == "d10" }.forEach { it.background = true }; changed = true }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -94,7 +96,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 4)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 5)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 

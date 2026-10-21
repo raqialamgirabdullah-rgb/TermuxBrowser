@@ -40,6 +40,7 @@ object Runner {
             val pi = PendingIntent.getBroadcast(c, 0, r, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
             i.putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", pi)
         } else i.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
+        if (!cmd.background) script = Live.PKG_SHIM + script
         i.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", script))
         fun fail(msg: String): Pair<Job?, String?> {
             job?.status = "fail"; job?.out = msg; job?.end = System.currentTimeMillis()

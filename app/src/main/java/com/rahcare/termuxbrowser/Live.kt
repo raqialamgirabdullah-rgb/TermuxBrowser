@@ -28,6 +28,14 @@ object Live {
     }
 
     /** ব্যবহারকারীর স্ক্রিপ্টকে এমনভাবে মুড়ে দেয় যে আউটপুট লাইভ অ্যাপে আসে; সংযোগ না হলে স্ক্রিপ্ট সাধারণভাবেই চলে */
+    /** pkg-র ধীর মিরর-পরীক্ষা এড়াতে pkg-কে apt-এ বদলায় (ব্যাকগ্রাউন্ড ও Termux-পর্দা দুই ক্ষেত্রেই) */
+    const val PKG_SHIM = "export DEBIAN_FRONTEND=noninteractive\n" +
+        "pkg() { c=\"\$1\"; shift; case \"\$c\" in\n" +
+        "update|up) apt update \"\$@\" ;;\n" +
+        "upgrade|full-upgrade) apt -o Dpkg::Options::=--force-confold upgrade \"\$@\" ;;\n" +
+        "install|i|add) apt -o Dpkg::Options::=--force-confold install \"\$@\" ;;\n" +
+        "*) command pkg \"\$c\" \"\$@\" ;; esac; }\n"
+
     fun wrap(job: Job, script: String): String {
         val port = ensure()
         val k = job.key
