@@ -8,22 +8,25 @@ import android.content.Intent
 class ResultReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
         val job = Jobs.find(i.getStringExtra("job") ?: return) ?: return
-        val live = job.out.isNotBlank()
+        val liveOut = job.out.isNotBlank()
         val b = i.getBundleExtra("result")
         if (b == null) {
             if (job.status == "running") { job.status = "fail"; job.end = System.currentTimeMillis() }
-            if (!live) job.out = "(আউটপুট নেই)"
+            if (!liveOut) job.out = "(আউটপুট নেই)"
         } else {
             val out = b.getString("stdout", "") ?: ""
             val err = b.getString("stderr", "") ?: ""
             val code = b.getInt("exitCode", -1)
             val em = b.getString("errmsg", "") ?: ""
+            // লাইভ স্ট্রিম শেষ পর্যন্ত না পৌঁছলে (অ্যাপ মিনিমাইজ ছিল) চূড়ান্ত আউটপুট এখান থেকে নিই
+            val live = job.out.isNotBlank() && job.status != "running"
+            if (!live) job.out = ""
             if (job.status == "running") {
                 job.status = if (code == 0 && em.isBlank()) "ok" else "fail"
                 job.end = System.currentTimeMillis()
             }
             val extra = buildString {
-                if (!live) append(out.takeLast(3000))
+                if (!live) append(out.takeLast(8000))
                 if (err.isNotBlank()) append("\n").append(err.takeLast(1500))
                 if (em.isNotBlank()) append("\n[ত্রুটি] ").append(em)
                 if (!live) append("\n(exit ").append(code).append(")")

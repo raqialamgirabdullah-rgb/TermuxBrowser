@@ -29,16 +29,28 @@ object Live {
 
     /** ব্যবহারকারীর স্ক্রিপ্টকে এমনভাবে মুড়ে দেয় যে আউটপুট লাইভ অ্যাপে আসে; সংযোগ না হলে স্ক্রিপ্ট সাধারণভাবেই চলে */
     fun wrap(job: Job, script: String): String {
-        val a = "/dev/tcp/127.0.0.1/" + ensure()
-        return "if (exec 3<>$a) 2>/dev/null; then\n" +
-            "exec 3<>$a\n" +
-            "echo \"@@KEY:${job.key}\" >&3\n" +
-            "(\n$script\n) >&3 2>&1\n" +
+        val port = ensure()
+        val k = job.key
+        // আউটপুট আগে ফাইলে লেখা হয়, তাই অ্যাপ মিনিমাইজ/ফ্রিজ হলেও কমান্ড আটকায় না;
+        // tail আলাদা করে সেটা অ্যাপে পাঠায় (অ্যাপ ফ্রিজ থাকলে শুধু tail থামে, কমান্ড নয়)
+        return "mkdir -p \"\$HOME/.tb\" 2>/dev/null\n" +
+            "L=\"\$HOME/.tb/$k.log\"; : > \"\$L\"\n" +
+            "termux-wake-lock 2>/dev/null\n" +
+            "FW=\n" +
+            "if (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null; then\n" +
+            "exec 3<>/dev/tcp/127.0.0.1/$port\n" +
+            "echo \"@@KEY:$k\" >&3\n" +
+            "tail -n +1 -f \"\$L\" >&3 2>/dev/null &\n" +
+            "FW=\$!\n" +
+            "fi\n" +
+            "(\n$script\n) >> \"\$L\" 2>&1\n" +
             "c=\$?\n" +
-            "echo \"@@EXIT:\$c\" >&3\n" +
-            "exec 3>&-\n" +
-            "exit \$c\n" +
-            "else\n$script\nfi\n"
+            "echo \"@@EXIT:\$c\" >> \"\$L\"\n" +
+            "if [ -n \"\$FW\" ]; then sleep 2; kill \$FW 2>/dev/null; fi\n" +
+            "termux-wake-unlock 2>/dev/null\n" +
+            "tail -c 8000 \"\$L\" | sed '/^@@EXIT/d'\n" +
+            "rm -f \"\$L\"\n" +
+            "exit \$c\n"
     }
 
     private fun finish(job: Job, code: Int) {
