@@ -5,18 +5,77 @@ import android.content.Context
 /** ব্রাউজারের হোম পেজ: Termux কমান্ড বাটন + চলমান কাজ */
 object Home {
     const val BASE = "https://termux.home/"
+    const val JOB = BASE + "job/"
 
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
+    private fun mark(j: Job) = when (j.status) { "running" -> "চলছে…"; "ok" -> "সম্পন্ন"; else -> "ব্যর্থ" }
+
+    /** একটি কাজের বর্তমান অবস্থা (JSON) — কাজের ট্যাবের পাতা এটা দিয়ে নিজেকে আঁকে */
+    fun state(j: Job): String = org.json.JSONObject().put("s", j.status).put("p", j.pct).put("o", j.text())
+        .put("t0", j.time).put("t1", j.end).toString()
+
+    /** হোম পেজের কাজের তালিকা: প্রতিটিতে চাপলে সেই কাজের ট্যাব খোলে */
     fun jobsHtml(): String {
         if (Jobs.list.isEmpty()) return "<p class=m>এখনো কিছু চালানো হয়নি।</p>"
         return Jobs.list.asReversed().take(10).joinToString("") { j ->
             val dot = when (j.status) { "running" -> "#f59e0b"; "ok" -> "#16a34a"; else -> "#dc2626" }
-            val st = when (j.status) { "running" -> "চলছে…"; "ok" -> "সম্পন্ন"; else -> "ব্যর্থ" }
-            "<div class=job><b><span class=dot style='background:$dot'></span>${esc(j.title)}</b> <span class=m>$st</span>" +
-                (if (j.out.isNotBlank()) "<pre>${esc(j.out)}</pre>" else "") + "</div>"
+            val bar = when {
+                j.status == "ok" -> "<div class=mb><i class=okb></i></div>"
+                j.status != "running" -> "<div class=mb><i class=fb></i></div>"
+                j.pct >= 0 -> "<div class=mb><i style='width:${j.pct}%'></i></div>"
+                else -> "<div class=mb><i class=ind></i></div>"
+            }
+            val last = j.lastLine()
+            "<a class=job href='termux://job/${j.key}'><b><span class=dot style='background:$dot'></span>${esc(j.title)}</b> " +
+                "<span class=m>${mark(j)} · ${j.elapsed()} সেকেন্ড</span>$bar" +
+                (if (last.isNotBlank()) "<div class=ll>${esc(last)}</div>" else "") + "</a>"
         }
     }
+
+    /** একটি কাজের নিজস্ব ট্যাব: শিরোনাম, অবস্থা, প্রগ্রেস বার, সময় ও লাইভ আউটপুট */
+    fun jobHtml(j: Job): String = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<style>
+body{font-family:system-ui,sans-serif;margin:0;padding:14px;background:#f3f4f6;color:#111827}
+.top{display:flex;align-items:center;gap:10px}h1{font-size:18px;margin:0;flex:1;word-break:break-word}
+.chip{font-size:12px;font-weight:700;padding:4px 10px;border-radius:99px;background:#fef3c7;color:#92400e;white-space:nowrap}
+.chip.ok{background:#dcfce7;color:#166534}.chip.fail{background:#fee2e2;color:#991b1b}
+.m{color:#6b7280;font-size:13px;margin:6px 0}
+.bar{height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;margin:10px 0}
+.bar i{display:block;height:100%;background:#2563eb;transition:width .3s}
+.bar i.ind{width:30%;animation:mv 1.1s ease-in-out infinite}
+@keyframes mv{0%{margin-left:-30%}100%{margin-left:100%}}
+.bar.ok i{background:#16a34a}.bar.fail i{background:#dc2626}
+code.c{display:block;background:#e5e7eb;border-radius:8px;padding:8px;font-size:11.5px;word-break:break-all;margin-bottom:10px;max-height:90px;overflow:auto}
+pre{background:#0b1220;color:#d1fae5;border-radius:10px;padding:10px;font-size:12px;line-height:1.45;white-space:pre-wrap;word-break:break-all;margin:0;min-height:120px}
+</style></head><body>
+<div class=top><h1>${esc(j.title)}</h1><span id=st class=chip>চলছে…</span></div>
+<div class=m><span id=pc></span><span id=el></span></div>
+<div class=bar id=bar><i id=pb class=ind></i></div>
+<code class=c>${esc(j.script)}</code>
+<pre id=o></pre>
+<script>
+var S=${state(j)};
+function two(n){return n<10?'0'+n:n}
+function fmt(s){s=Math.floor(s);return Math.floor(s/60)+':'+two(s%60)}
+function tick(){document.getElementById('el').textContent='সময়: '+fmt(((S.t1||Date.now())-S.t0)/1000)}
+function upd(x){S=x;draw()}
+function draw(){
+ var st=document.getElementById('st'),bar=document.getElementById('bar'),pb=document.getElementById('pb');
+ var run=S.s==='running';
+ st.className='chip'+(S.s==='ok'?' ok':S.s==='fail'?' fail':'');
+ st.textContent=run?'চলছে…':S.s==='ok'?'সম্পন্ন ✓':'ব্যর্থ ✗';
+ bar.className='bar'+(S.s==='ok'?' ok':S.s==='fail'?' fail':'');
+ if(run&&S.p<0){pb.className='ind';pb.style.width=''}else{pb.className='';pb.style.width=(run?S.p:100)+'%'}
+ document.getElementById('pc').textContent=(run&&S.p>=0)?S.p+'% · ':'';
+ var o=document.getElementById('o'),near=(innerHeight+scrollY)>=document.body.scrollHeight-90;
+ o.textContent=S.o||(run?'আউটপুটের অপেক্ষা…':'(কোনো আউটপুট নেই)');
+ if(near)scrollTo(0,document.body.scrollHeight);
+ tick()
+}
+setInterval(function(){if(S.s==='running')tick()},1000);
+draw();
+</script></body></html>"""
 
     fun html(c: Context): String {
         val ready = Runner.installed(c) && Runner.hasPermission(c)
@@ -36,10 +95,12 @@ code{background:#fde68a;padding:2px 4px;border-radius:4px;word-break:break-all;f
 .run{flex:1;padding:12px 14px;color:#111827;text-decoration:none}.run small{display:block;color:#6b7280;font:11.5px monospace;margin-top:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:70vw}
 .ed{padding:12px 16px;color:#6b7280;text-decoration:none;display:flex;align-items:center}
 .add{display:block;text-align:center;padding:12px;background:#111827;color:#fff;border-radius:14px;text-decoration:none;margin-top:4px}
-.job{background:#fff;border-radius:12px;padding:10px 12px;margin-bottom:8px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px}
+.job{display:block;text-decoration:none;color:inherit;background:#fff;border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.mb{height:5px;background:#e5e7eb;border-radius:3px;overflow:hidden;margin:7px 0 2px}.mb i{display:block;height:100%;background:#2563eb}.mb i.ind{width:30%;animation:mv 1.1s ease-in-out infinite}.mb i.okb{width:100%;background:#16a34a}.mb i.fb{width:100%;background:#dc2626}@keyframes mv{0%{margin-left:-30%}100%{margin-left:100%}}
+.ll{color:#6b7280;font:11.5px monospace;margin-top:4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px}
 pre{background:#111827;color:#d1fae5;border-radius:8px;padding:8px;font-size:11.5px;white-space:pre-wrap;word-break:break-all;margin:8px 0 0;max-height:220px;overflow:auto}
 </style></head><body>
-<h1>Termux Browser</h1><div class=m>এখানে ক্লিক করলে কাজ ব্যাকগ্রাউন্ডে চলে — আপনি ব্রাউজারেই থাকবেন।</div>
+<h1>Termux Browser</h1><div class=m>কমান্ডে চাপলে নতুন ট্যাবে কাজ চলবে — সেখানেই লাইভ আউটপুট, সময় আর প্রগ্রেস দেখা যাবে।</div>
 $warn
 <h2>কমান্ড</h2>$cards<a class=add href='termux://edit/new'>＋ নতুন কমান্ড</a>
 <h2>চলমান ও শেষ হওয়া কাজ</h2><div id=jobs>${jobsHtml()}</div>

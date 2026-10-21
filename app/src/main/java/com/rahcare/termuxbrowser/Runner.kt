@@ -22,32 +22,37 @@ object Runner {
     fun hasPermission(c: Context) =
         c.checkSelfPermission("com.termux.permission.RUN_COMMAND") == PackageManager.PERMISSION_GRANTED
 
-    /** null = সফল, নইলে বাংলা ত্রুটির বার্তা */
-    fun run(c: Context, cmd: Cmd): String? {
-        if (!installed(c)) return "Termux ইনস্টল করা নেই (F-Droid থেকে ইনস্টল করুন)"
-        if (!hasPermission(c)) return "Termux-এর RUN_COMMAND অনুমতি দেওয়া নেই"
+    /** (কাজ, ত্রুটি): ত্রুটি null হলে সফল; ব্যাকগ্রাউন্ড কমান্ড হলে কাজটাও ফেরত আসে (নতুন ট্যাবে দেখানোর জন্য) */
+    fun run(c: Context, cmd: Cmd): Pair<Job?, String?> {
+        if (!installed(c)) return Pair(null, "Termux ইনস্টল করা নেই (F-Droid থেকে ইনস্টল করুন)")
+        if (!hasPermission(c)) return Pair(null, "Termux-এর RUN_COMMAND অনুমতি দেওয়া নেই")
         val i = Intent(ACTION).setClassName(TERMUX, SERVICE)
         i.putExtra("com.termux.RUN_COMMAND_PATH", BASH)
-        i.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", cmd.script))
         i.putExtra("com.termux.RUN_COMMAND_WORKDIR", HOME)
         i.putExtra("com.termux.RUN_COMMAND_BACKGROUND", cmd.background)
         var job: Job? = null
+        var script = cmd.script
         if (cmd.background) {
-            job = Jobs.start(cmd.title)
+            job = Jobs.start(cmd.title, cmd.script)
+            script = try { Live.wrap(job, cmd.script) } catch (_: Exception) { cmd.script }
             val r = Intent(c, ResultReceiver::class.java).setData(Uri.parse("job://${job.key}")).putExtra("job", job.key)
             val pi = PendingIntent.getBroadcast(c, 0, r, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
             i.putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", pi)
         } else i.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
+        i.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", script))
+        fun fail(msg: String): Pair<Job?, String?> {
+            job?.status = "fail"; job?.out = msg; job?.end = System.currentTimeMillis()
+            return Pair(null, msg)
+        }
         return try {
             if (android.os.Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i)
-            null
+            Pair(job, null)
         } catch (e: SecurityException) {
-            job?.status = "fail"; job?.out = "অনুমতি নেই"
-            "অনুমতি নেই। Termux-এ চালান: echo 'allow-external-apps=true' >> ~/.termux/termux.properties, তারপর Termux রিস্টার্ট করুন"
+            fail("অনুমতি নেই। Termux-এ চালান: echo 'allow-external-apps=true' >> ~/.termux/termux.properties, তারপর Termux রিস্টার্ট করুন")
         } catch (e: ActivityNotFoundException) {
-            job?.status = "fail"; "Termux সার্ভিস পাওয়া যায়নি"
+            fail("Termux সার্ভিস পাওয়া যায়নি")
         } catch (e: Exception) {
-            job?.status = "fail"; "ত্রুটি: ${e.message}"
+            fail("ত্রুটি: ${e.message}")
         }
     }
 }

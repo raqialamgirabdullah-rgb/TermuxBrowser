@@ -28,7 +28,8 @@ import org.json.JSONObject
 class Tab(val web: WebView) {
     var title = "নতুন ট্যাব"
     var url = ""
-    val isHome get() = url.startsWith(Home.BASE)
+    var jobKey: String? = null // কমান্ডের নিজস্ব ট্যাব হলে কাজের চাবি
+    val isHome get() = url == Home.BASE || (url.startsWith(Home.BASE) && !url.startsWith(Home.JOB))
 }
 
 class MainActivity : Activity() {
@@ -41,6 +42,9 @@ class MainActivity : Activity() {
     private lateinit var content: FrameLayout
     private lateinit var address: EditText
     private lateinit var countBox: TextView
+    private lateinit var runBox: TextView
+    private var refreshQueued = false
+    private var lastOverlay = 0L
     private lateinit var progress: ProgressBar
     private var overlay: View? = null
     private var upd: Updater.Info? = null
@@ -49,12 +53,44 @@ class MainActivity : Activity() {
     private lateinit var banner: TextView
 
     private val rx = object : BroadcastReceiver() {
-        override fun onReceive(c: Context, i: Intent) {
-            tabs.filter { it.isHome }.forEach {
-                it.web.evaluateJavascript("var e=document.getElementById('jobs');if(e)e.innerHTML=${JSONObject.quote(Home.jobsHtml())}", null)
+        override fun onReceive(c: Context, i: Intent) { scheduleRefresh() }
+    }
+
+    private fun statusMark(j: Job) = when (j.status) { "running" -> "⏳ "; "ok" -> "✓ "; else -> "✗ " }
+
+    /** লাইভ আপডেট বারবার এলে ২০০ms-এ একবার আঁকা */
+    private fun scheduleRefresh() {
+        if (refreshQueued) return
+        refreshQueued = true
+        handler.postDelayed({ refreshQueued = false; refreshAll() }, 200)
+    }
+
+    /** সব ট্যাব, প্রগ্রেস বার, চলমান-সংখ্যা ও ট্যাব তালিকা এখনকার অবস্থায় আনে */
+    private fun refreshAll() {
+        val homeJs = "var e=document.getElementById('jobs');if(e)e.innerHTML=${JSONObject.quote(Home.jobsHtml())}"
+        tabs.forEach { t ->
+            val j = t.jobKey?.let { Jobs.find(it) }
+            when {
+                t.isHome -> t.web.evaluateJavascript(homeJs, null)
+                j != null -> { t.title = statusMark(j) + j.title; t.web.evaluateJavascript("if(window.upd)upd(${Home.state(j)})", null) }
             }
-            if (overlay != null) showSwitcher()
         }
+        val n = Jobs.running()
+        runBox.visibility = if (n > 0) View.VISIBLE else View.GONE
+        runBox.text = "⟳ $n"
+        syncProgress(); updateBar()
+        val now = System.currentTimeMillis()
+        if (overlay != null && now - lastOverlay > 1000) showSwitcher()
+    }
+
+    /** কাজের ট্যাব খোলা থাকলে ওপরের প্রগ্রেস বার পেজ-লোডের মতো চলে: শতাংশ জানলে ভরে, নইলে ঘুরতে থাকে */
+    private fun syncProgress() {
+        val j = cur?.jobKey?.let { Jobs.find(it) } ?: return
+        if (j.status == "running") {
+            progress.visibility = View.VISIBLE
+            progress.isIndeterminate = j.pct < 0
+            if (j.pct >= 0) progress.progress = j.pct
+        } else { progress.isIndeterminate = false; progress.visibility = View.GONE }
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -89,6 +125,14 @@ class MainActivity : Activity() {
         }
         bar.addView(address, LinearLayout.LayoutParams(0, dp(40), 1f))
         bar.addView(icon("＋", 24f) { newTab(null); openHome() })
+        runBox = TextView(this).apply {
+            textSize = 12f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+            background = bg(Color.parseColor("#F59E0B"), 13); visibility = View.GONE
+            setPadding(dp(8), 0, dp(8), 0)
+            layoutParams = LinearLayout.LayoutParams(-2, dp(26)).apply { setMargins(dp(4), 0, dp(2), 0) }
+            setOnClickListener { showSwitcher() }
+        }
+        bar.addView(runBox)
         countBox = TextView(this).apply {
             textSize = 12f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.parseColor("#374151"))
             background = bg(Color.WHITE, 6, Color.parseColor("#374151"))
@@ -126,8 +170,10 @@ class MainActivity : Activity() {
         super.onResume()
         if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(rx, IntentFilter(REFRESH), Context.RECEIVER_NOT_EXPORTED)
         else registerReceiver(rx, IntentFilter(REFRESH))
+        Live.onUpdate = { _ -> handler.post { scheduleRefresh() } }
         // অনুমতি/ইনস্টল বদলে থাকলে হোম পেজ নতুন করে আঁকি
         cur?.let { if (it.isHome) loadHome(it) }
+        scheduleRefresh()
         if (pendingInstall && packageManager.canRequestPackageInstalls()) { pendingInstall = false; startUpdate() }
         val sp = Store.prefs(this)
         if (System.currentTimeMillis() - sp.getLong("upd_t", 0L) > 30 * 60 * 1000L) {
@@ -164,6 +210,7 @@ class MainActivity : Activity() {
     override fun onPause() {
         super.onPause()
         try { unregisterReceiver(rx) } catch (_: Exception) {}
+        Live.onUpdate = null
         save()
     }
 
@@ -196,15 +243,15 @@ class MainActivity : Activity() {
             }
             override fun onPageStarted(v: WebView, u: String, f: Bitmap?) { t.url = u; if (t === cur) updateBar() }
             override fun onPageFinished(v: WebView, u: String) {
-                t.url = u; if (t.isHome) t.title = "Termux হোম" else if (!v.title.isNullOrBlank()) t.title = v.title!!
+                t.url = u; if (t.isHome) t.title = "Termux হোম" else if (t.jobKey == null && !v.title.isNullOrBlank()) t.title = v.title!!
                 if (t === cur) updateBar()
             }
         }
         w.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(v: WebView, p: Int) {
-                if (t === cur) { progress.progress = p; progress.visibility = if (p in 1..99) View.VISIBLE else View.GONE }
+                if (t === cur && t.jobKey == null) { progress.isIndeterminate = false; progress.progress = p; progress.visibility = if (p in 1..99) View.VISIBLE else View.GONE }
             }
-            override fun onReceivedTitle(v: WebView, title: String?) { if (!t.isHome && !title.isNullOrBlank()) t.title = title }
+            override fun onReceivedTitle(v: WebView, title: String?) { if (!t.isHome && t.jobKey == null && !title.isNullOrBlank()) t.title = title }
             override fun onCreateWindow(v: WebView, d: Boolean, g: Boolean, m: Message): Boolean {
                 val n = newTab(null)
                 (m.obj as WebView.WebViewTransport).webView = n.web; m.sendToTarget(); return true
@@ -237,7 +284,8 @@ class MainActivity : Activity() {
         content.removeAllViews()
         (t.web.parent as? ViewGroup)?.removeView(t.web)
         content.addView(t.web, FrameLayout.LayoutParams(-1, -1))
-        updateBar()
+        if (t.jobKey == null) { progress.isIndeterminate = false; progress.visibility = View.GONE }
+        updateBar(); syncProgress()
     }
 
     private fun closeTab(t: Tab) {
@@ -251,7 +299,7 @@ class MainActivity : Activity() {
     private fun updateBar() {
         countBox.text = tabs.size.toString()
         val t = cur ?: return
-        if (!address.hasFocus()) address.setText(if (t.isHome) "" else t.url)
+        if (!address.hasFocus()) address.setText(if (t.isHome) "" else if (t.jobKey != null) "⚙ " + t.title else t.url)
         address.hint = if (t.isHome) "Termux হোম — সার্চ বা ঠিকানা লিখুন" else "সার্চ বা ঠিকানা লিখুন"
     }
 
@@ -284,15 +332,23 @@ class MainActivity : Activity() {
         when (kind) {
             "run" -> {
                 val cmd = Store.all(this).firstOrNull { it.id == id } ?: return
-                val err = Runner.run(this, cmd)
+                val (job, err) = Runner.run(this, cmd)
                 if (err != null) AlertDialog.Builder(this).setTitle("চালানো যায়নি").setMessage(err).setPositiveButton("ঠিক আছে", null).show()
-                else {
-                    if (cmd.background) Toast.makeText(this, "ব্যাকগ্রাউন্ডে চলছে: ${cmd.title}", Toast.LENGTH_SHORT).show()
-                    t.web.post { rx.onReceive(this, Intent(REFRESH)) }
-                }
+                else if (job != null) openJobTab(job)
+                else Toast.makeText(this, "Termux স্ক্রিনে চলছে: ${cmd.title}", Toast.LENGTH_SHORT).show()
             }
+            "job" -> Jobs.find(id)?.let { openJobTab(it) }
             "edit" -> edit(Store.all(this).firstOrNull { it.id == id })
         }
+    }
+
+    /** কমান্ডের জন্য নিজস্ব ট্যাব (আগে খোলা থাকলে সেটাতেই যায়) */
+    private fun openJobTab(j: Job) {
+        tabs.firstOrNull { it.jobKey == j.key }?.let { select(it); scheduleRefresh(); return }
+        val t = newTab(null)
+        t.jobKey = j.key; t.url = Home.JOB + j.key; t.title = statusMark(j) + j.title
+        t.web.loadDataWithBaseURL(t.url, Home.jobHtml(j), "text/html", "utf-8", null)
+        select(t); scheduleRefresh()
     }
 
     private fun edit(cmd: Cmd?) {
@@ -320,6 +376,8 @@ class MainActivity : Activity() {
     private fun hideSwitcher() { overlay?.let { content.removeView(it) }; overlay = null }
 
     private fun showSwitcher() {
+        val keep = (overlay as? ScrollView)?.scrollY ?: 0
+        lastOverlay = System.currentTimeMillis()
         overlay?.let { content.removeView(it) }
         val sv = ScrollView(this).apply { setBackgroundColor(Color.parseColor("#F3F4F6")); isClickable = true }
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(14), dp(14), dp(24)) }
@@ -337,7 +395,9 @@ class MainActivity : Activity() {
             val txt = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             txt.addView(TextView(this).apply { text = t.title; textSize = 15f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setTextColor(Color.parseColor("#111827")) })
             txt.addView(TextView(this).apply {
-                text = if (t.isHome) "Termux হোম" else t.url; textSize = 11.5f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setTextColor(Color.parseColor("#6B7280"))
+                text = t.jobKey?.let { k -> Jobs.find(k)?.let { j -> "কমান্ড · ${if (j.status == "running") "চলছে" else if (j.status == "ok") "সম্পন্ন" else "ব্যর্থ"} · ${j.elapsed()} সেকেন্ড" } }
+                    ?: if (t.isHome) "Termux হোম" else t.url
+                textSize = 11.5f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setTextColor(Color.parseColor("#6B7280"))
             })
             row.addView(txt, LinearLayout.LayoutParams(0, -2, 1f))
             row.addView(TextView(this).apply { text = "✕"; textSize = 18f; gravity = Gravity.CENTER; setTextColor(Color.parseColor("#6B7280"))
@@ -351,16 +411,14 @@ class MainActivity : Activity() {
             val c = when (j.status) { "running" -> "#F59E0B"; "ok" -> "#16A34A"; else -> "#DC2626" }
             val st = when (j.status) { "running" -> "চলছে…"; "ok" -> "সম্পন্ন"; else -> "ব্যর্থ" }
             col.addView(TextView(this).apply {
-                text = "●  ${j.title} — $st"; textSize = 14f; setTextColor(Color.parseColor(c)); background = bg(Color.WHITE, 12)
+                text = "●  ${j.title} — $st · ${j.elapsed()} সেকেন্ড"; textSize = 14f; setTextColor(Color.parseColor(c)); background = bg(Color.WHITE, 12)
                 setPadding(dp(14), dp(12), dp(14), dp(12)); layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) }
-                setOnClickListener {
-                    AlertDialog.Builder(this@MainActivity).setTitle(j.title).setMessage(if (j.out.isBlank()) st else j.out)
-                        .setPositiveButton("ঠিক আছে", null).show()
-                }
+                setOnClickListener { openJobTab(j) }
             })
         }
         overlay = sv
         content.addView(sv, FrameLayout.LayoutParams(-1, -1))
+        sv.post { sv.scrollTo(0, keep) }
     }
 
     // ---------- মেনু ----------
@@ -412,8 +470,9 @@ class MainActivity : Activity() {
     // ---------- সেশন ----------
     private fun save() {
         val a = JSONArray()
-        tabs.forEach { a.put(if (it.isHome || it.url.isBlank()) "home" else it.url) }
-        Store.prefs(this).edit().putString("tabs", a.toString()).putInt("cur", tabs.indexOf(cur)).apply()
+        val keep = tabs.filter { it.jobKey == null }
+        keep.forEach { a.put(if (it.isHome || it.url.isBlank()) "home" else it.url) }
+        Store.prefs(this).edit().putString("tabs", a.toString()).putInt("cur", maxOf(0, keep.indexOf(cur))).apply()
     }
 
     private fun restore() {

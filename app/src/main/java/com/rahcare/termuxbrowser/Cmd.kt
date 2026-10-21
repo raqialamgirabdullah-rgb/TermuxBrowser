@@ -8,12 +8,36 @@ import org.json.JSONObject
 data class Cmd(val id: String, var title: String, var script: String, var background: Boolean = true)
 
 /** ব্যাকগ্রাউন্ডে চলা কাজ */
-data class Job(val key: String, val title: String, var status: String, var out: String, val time: Long)
+data class Job(val key: String, val title: String, var status: String, var out: String, val time: Long) {
+    var end = 0L          // শেষ হওয়ার সময় (০ = এখনো চলছে)
+    var script = ""
+    var pct = -1          // আউটপুটে পাওয়া শেষ "NN%" (না পেলে -১)
+    @Volatile var lastPush = 0L
+
+    private val ansi = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]|\u001B\\][^\u0007]*\u0007")
+    private val percent = Regex("(\\d{1,3})\\s?%")
+
+    /** পর্দায় দেখানোর লেখা: রঙের কোড বাদ, \r দিয়ে বদলানো লাইনে শুধু শেষ অংশ */
+    fun text(): String {
+        var s = if (out.length > 20000) out.takeLast(20000) else out
+        s = ansi.replace(s, "").replace("\r\n", "\n")
+        return s.split('\n').joinToString("\n") { it.substringAfterLast('\r') }
+    }
+
+    fun refreshPct() {
+        val m = percent.findAll(text().takeLast(400)).lastOrNull()?.groupValues?.get(1)?.toIntOrNull()
+        pct = if (m != null && m in 0..100) m else -1
+    }
+
+    fun elapsed() = ((if (end > 0) end else System.currentTimeMillis()) - time) / 1000
+    fun lastLine() = text().lines().lastOrNull { it.isNotBlank() }?.trim()?.take(120) ?: ""
+}
 
 object Jobs {
     val list = mutableListOf<Job>()
-    fun start(title: String): Job {
+    fun start(title: String, script: String = ""): Job {
         val j = Job("j${System.nanoTime()}", title, "running", "", System.currentTimeMillis())
+        j.script = script
         list.add(j); if (list.size > 30) list.removeAt(0); return j
     }
     fun find(key: String) = list.firstOrNull { it.key == key }
