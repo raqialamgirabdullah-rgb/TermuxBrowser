@@ -44,6 +44,17 @@ object Jobs {
     fun running() = list.count { it.status == "running" }
 }
 
+/** ইনস্টল ব্যর্থ হলে আর Termux:X11 খোলে না (আগে ; দিয়ে জোড়া ছিল বলে ব্যর্থ হলেও খুলে যেত) */
+const val DESKTOP = "pkg install -y x11-repo && pkg install -y termux-x11-nightly openbox tint2 xterm pcmanfm || { echo 'ইনস্টল ব্যর্থ — উপরের ত্রুটি দেখুন'; exit 1; }\n" +
+    "pkill -f termux-x11 2>/dev/null\n" +
+    "(termux-x11 :0 >/dev/null 2>&1 &)\n" +
+    "sleep 3\n" +
+    "echo 'ডেস্কটপ সার্ভার চালু — Termux:X11 খুলছে'\n" +
+    "am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1\n" +
+    "export DISPLAY=:0\n" +
+    "(tint2 >/dev/null 2>&1 &)\n" +
+    "exec openbox-session"
+
 object Store {
     private fun sp(c: Context) = c.getSharedPreferences("cmds", Context.MODE_PRIVATE)
 
@@ -57,11 +68,7 @@ object Store {
         Cmd("d7", "ডিস্ক ব্যবহার", "df -h \$HOME"),
         Cmd("d8", "আইপি দেখুন", "(command -v ifconfig >/dev/null || pkg install -y net-tools) && ifconfig 2>/dev/null | grep -E \"inet |wlan|rmnet\" || /system/bin/ip -4 addr 2>/dev/null | grep inet"),
         Cmd("d9", "সিস্টেম তথ্য", "uname -a && echo && free -h 2>/dev/null | head -3"),
-        Cmd("d10", "🖥 কম্পিউটার মোড (হালকা ডেস্কটপ)",
-            "pkg install -y x11-repo && pkg install -y termux-x11-nightly openbox tint2 xterm pcmanfm && " +
-            "pkill -f termux-x11 2>/dev/null; (termux-x11 :0 >/dev/null 2>&1 &) ; sleep 3; " +
-            "am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1; " +
-            "export DISPLAY=:0; (tint2 >/dev/null 2>&1 &); exec openbox-session"),
+        Cmd("d10", "🖥 কম্পিউটার মোড (হালকা ডেস্কটপ)", DESKTOP),
         // ওয়েব-টার্মিনাল: Termux-এ ttyd চালু হয়, তারপর অ্যাপ নতুন ট্যাবে খোলে। শুধু 127.0.0.1-এ, পাসওয়ার্ডসহ (@@WEBPW@@ অ্যাপ বসায়)
         Cmd("d12", "🌐 ওয়েব-টার্মিনাল (ট্যাবে পূর্ণ টার্মিনাল)",
             "pkg install -y ttyd && { pkill -x ttyd 2>/dev/null; nohup setsid ttyd -W -i 127.0.0.1 -p 7681 -c tb:@@WEBPW@@ bash -l >/dev/null 2>&1 & sleep 2; echo 'ওয়েব-টার্মিনাল চালু — নতুন ট্যাব খুলছে'; }"),
@@ -88,6 +95,8 @@ object Store {
         if (sp(c).getInt("ver", 1) < 4) { out.filter { it.id == "d8" && it.script == "ip -4 addr | grep inet" }.forEach { it.script = defaults.first { d -> d.id == "d8" }.script }; changed = true }
         // কম্পিউটার মোড আবার ব্রাউজারের ট্যাবেই চলবে (Termux পর্দায় নিয়ে যাবে না)
         if (sp(c).getInt("ver", 1) < 5) { out.filter { it.id == "d10" }.forEach { it.background = true }; changed = true }
+        // পুরনো কম্পিউটার-মোড স্ক্রিপ্ট ব্যর্থ ইনস্টলেও X11 খুলত — নতুনটা বসাই
+        if (sp(c).getInt("ver", 1) < 6) { out.filter { it.id == "d10" }.forEach { it.script = DESKTOP }; changed = true }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -96,7 +105,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 5)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 6)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 
