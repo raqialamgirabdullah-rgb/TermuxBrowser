@@ -175,6 +175,7 @@ class MainActivity : Activity() {
         cur?.let { if (it.isHome) loadHome(it) }
         scheduleRefresh()
         askRunPermission()
+        askBackgroundSetup()
         if (pendingInstall && packageManager.canRequestPackageInstalls()) { pendingInstall = false; startUpdate() }
         val sp = Store.prefs(this)
         if (System.currentTimeMillis() - sp.getLong("upd_t", 0L) > 30 * 60 * 1000L) {
@@ -337,6 +338,22 @@ class MainActivity : Activity() {
         if (askedRun && !force) return
         askedRun = true
         try { requestPermissions(arrayOf("com.termux.permission.RUN_COMMAND"), 77) } catch (_: Exception) {}
+    }
+
+    /** AutoReply-এর মতো: নোটিফিকেশন অনুমতি + ব্যাটারি সীমাবদ্ধতা তুলে নেওয়া, যাতে ব্যাকগ্রাউন্ডে কাজ না থামে */
+    private fun askBackgroundSetup() {
+        if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            try { requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 78) } catch (_: Exception) {}
+        val pm = getSystemService(android.os.PowerManager::class.java)
+        val sp = Store.prefs(this)
+        if (!pm.isIgnoringBatteryOptimizations(packageName) && !sp.getBoolean("bat_asked", false)) {
+            sp.edit().putBoolean("bat_asked", true).apply()
+            AlertDialog.Builder(this).setTitle("ব্যাকগ্রাউন্ডে চালু রাখুন")
+                .setMessage("অ্যাপ মিনিমাইজ করলেও কমান্ড যেন চলতে থাকে, তাই ব্যাটারি সীমাবদ্ধতা তুলে দিন (পরের পর্দায় \"অনুমতি দিন/Allow\" চাপুন)।")
+                .setPositiveButton("ঠিক আছে") { _, _ ->
+                    try { startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))) } catch (_: Exception) {}
+                }.setNegativeButton("পরে", null).show()
+        }
     }
 
     override fun onRequestPermissionsResult(rc: Int, p: Array<out String>, g: IntArray) {

@@ -34,6 +34,7 @@ object Runner {
         var script = cmd.script
         if (cmd.background) {
             job = Jobs.start(cmd.title, cmd.script)
+            KeepAliveService.start(c)
             script = try { Live.wrap(job, cmd.script) } catch (_: Exception) { cmd.script }
             val r = Intent(c, ResultReceiver::class.java).setData(Uri.parse("job://${job.key}")).putExtra("job", job.key)
             val pi = PendingIntent.getBroadcast(c, 0, r, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
