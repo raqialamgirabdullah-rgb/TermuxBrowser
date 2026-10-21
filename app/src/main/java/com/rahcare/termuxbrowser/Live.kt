@@ -30,7 +30,9 @@ object Live {
     /** ব্যবহারকারীর স্ক্রিপ্টকে এমনভাবে মুড়ে দেয় যে আউটপুট লাইভ অ্যাপে আসে; সংযোগ না হলে স্ক্রিপ্ট সাধারণভাবেই চলে */
     /** pkg-র ধীর মিরর-পরীক্ষা এড়াতে pkg-কে apt-এ বদলায় (ব্যাকগ্রাউন্ড ও Termux-পর্দা দুই ক্ষেত্রেই) */
     const val PKG_SHIM = "export DEBIAN_FRONTEND=noninteractive\n" +
-        "pkg() { c=\"\$1\"; shift; case \"\$c\" in\n" +
+        // একই সময়ে দুই ট্যাবে প্যাকেজ কমান্ড দিলে পরেরটা আগেরটা শেষ হওয়া পর্যন্ত অপেক্ষা করে (apt-এর তালা নিয়ে ঝগড়া এড়াতে)
+        "aptwait() { command -v pgrep >/dev/null 2>&1 || return 0; w=0; while pgrep -x apt >/dev/null || pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null; do [ \$w = 0 ] && echo 'অন্য ট্যাবের প্যাকেজ কাজ শেষ হওয়ার অপেক্ষা…'; w=1; sleep 3; done; }\n" +
+        "pkg() { aptwait; c=\"\$1\"; shift; case \"\$c\" in\n" +
         // আগের কাটা-পড়া ইনস্টলের জের ("dpkg was interrupted") নিজে সারিয়ে নেয়
         "update|up) dpkg --configure -a --force-confold >/dev/null 2>&1; apt update \"\$@\" ;;\n" +
         "upgrade|full-upgrade) dpkg --configure -a --force-confold >/dev/null 2>&1; apt -o Dpkg::Options::=--force-confold upgrade \"\$@\" ;;\n" +
