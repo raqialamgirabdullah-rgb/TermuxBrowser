@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -29,6 +30,7 @@ class Tab(val web: WebView) {
     var title = "নতুন ট্যাব"
     var url = ""
     var jobKey: String? = null // কমান্ডের নিজস্ব ট্যাব হলে কাজের চাবি
+    var thumb: Bitmap? = null  // ট্যাব তালিকার ছোট প্রিভিউ
     val isHome get() = url == Home.BASE || (url.startsWith(Home.BASE) && !url.startsWith(Home.JOB))
 }
 
@@ -137,7 +139,7 @@ class MainActivity : Activity() {
             textSize = 12f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.parseColor("#374151"))
             background = bg(Color.WHITE, 6, Color.parseColor("#374151"))
             layoutParams = LinearLayout.LayoutParams(dp(26), dp(26)).apply { setMargins(dp(8), 0, dp(8), 0) }
-            setOnClickListener { if (overlay != null) hideSwitcher() else showSwitcher() }
+            setOnClickListener { if (overlay?.parent != null) hideSwitcher() else { overlay = null; showSwitcher() } }
         }
         bar.addView(countBox)
         val dots = icon("⋮", 24f) {}
@@ -289,7 +291,20 @@ class MainActivity : Activity() {
         ds.userAgentString = if (desktop) "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36" else ua
     }
 
+    /** ট্যাবের ছোট ছবি তোলে (ট্যাব তালিকায় ক্রোমের মতো প্রিভিউ দেখাতে) */
+    private fun snap(t: Tab) {
+        try {
+            val w = t.web.width; val h = t.web.height
+            if (w <= 0 || h <= 0) return
+            val sc = 0.4f
+            val b = Bitmap.createBitmap(maxOf(1, (w * sc).toInt()), maxOf(1, (h * sc).toInt()), Bitmap.Config.RGB_565)
+            val c = Canvas(b); c.drawColor(Color.WHITE); c.scale(sc, sc); t.web.draw(c)
+            t.thumb = b
+        } catch (_: Exception) {}
+    }
+
     private fun select(t: Tab) {
+        if (overlay == null) cur?.let { snap(it) }
         cur = t; hideSwitcher()
         content.removeAllViews()
         (t.web.parent as? ViewGroup)?.removeView(t.web)
@@ -433,23 +448,33 @@ class MainActivity : Activity() {
             text = t; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#374151")); setPadding(dp(2), dp(10), 0, dp(8))
         }
         col.addView(head("খোলা ট্যাব (${tabs.size})"))
-        tabs.forEach { t ->
-            val row = LinearLayout(this).apply {
-                gravity = Gravity.CENTER_VERTICAL; background = bg(if (t === cur) Color.parseColor("#DBEAFE") else Color.WHITE, 14)
-                setPadding(dp(14), dp(10), dp(6), dp(10)); layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) }
-                setOnClickListener { select(t) }
+        if (keep == 0 && overlay == null) cur?.let { snap(it) }
+        for (r in tabs.chunked(2)) {
+            val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) } }
+            for (k in 0..1) {
+                val t = r.getOrNull(k)
+                if (t == null) { line.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f)); continue }
+                val card = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = bg(if (t === cur) Color.parseColor("#BFDBFE") else Color.WHITE, 14, if (t === cur) Color.parseColor("#2563EB") else Color.parseColor("#E5E7EB"))
+                    setPadding(dp(6), dp(4), dp(6), dp(6)); setOnClickListener { select(t) }
+                }
+                val head = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+                head.addView(TextView(this).apply { text = t.title; textSize = 13f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setTextColor(Color.parseColor("#111827")); setPadding(dp(4), 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+                head.addView(TextView(this).apply { text = "✕"; textSize = 17f; gravity = Gravity.CENTER; setTextColor(Color.parseColor("#374151"))
+                    setOnClickListener { closeTab(t) } }, LinearLayout.LayoutParams(dp(40), dp(36)))
+                card.addView(head)
+                val st = t.jobKey?.let { jk -> Jobs.find(jk)?.let { j -> if (j.status == "running") "চলছে…" else if (j.status == "ok") "সম্পন্ন ✓" else "ব্যর্থ ✗" } }
+                val th = t.thumb
+                if (th != null && st == null) {
+                    card.addView(ImageView(this).apply { setImageBitmap(th); scaleType = ImageView.ScaleType.CENTER_CROP }, LinearLayout.LayoutParams(-1, dp(150)))
+                } else {
+                    card.addView(TextView(this).apply { text = st ?: (if (t.isHome) "Termux হোম" else t.url); textSize = 13f; gravity = Gravity.CENTER
+                        setTextColor(Color.parseColor("#6B7280")); background = bg(Color.parseColor("#F3F4F6"), 10) }, LinearLayout.LayoutParams(-1, dp(150)))
+                }
+                line.addView(card, LinearLayout.LayoutParams(0, -2, 1f).apply { if (k == 0) rightMargin = dp(5) else leftMargin = dp(5) })
             }
-            val txt = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            txt.addView(TextView(this).apply { text = t.title; textSize = 15f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setTextColor(Color.parseColor("#111827")) })
-            txt.addView(TextView(this).apply {
-                text = t.jobKey?.let { k -> Jobs.find(k)?.let { j -> "কমান্ড · ${if (j.status == "running") "চলছে" else if (j.status == "ok") "সম্পন্ন" else "ব্যর্থ"} · ${j.elapsed()} সেকেন্ড" } }
-                    ?: if (t.isHome) "Termux হোম" else t.url
-                textSize = 11.5f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setTextColor(Color.parseColor("#6B7280"))
-            })
-            row.addView(txt, LinearLayout.LayoutParams(0, -2, 1f))
-            row.addView(TextView(this).apply { text = "✕"; textSize = 18f; gravity = Gravity.CENTER; setTextColor(Color.parseColor("#6B7280"))
-                layoutParams = LinearLayout.LayoutParams(dp(44), dp(40)); setOnClickListener { closeTab(t) } })
-            col.addView(row)
+            col.addView(line)
         }
         col.addView(Button(this).apply { text = "＋ নতুন ট্যাব"; isAllCaps = false; setOnClickListener { newTab(null); openHome() } })
         col.addView(head("Termux-এ ব্যাকগ্রাউন্ডে কাজ (${Jobs.running()} চলছে)"))

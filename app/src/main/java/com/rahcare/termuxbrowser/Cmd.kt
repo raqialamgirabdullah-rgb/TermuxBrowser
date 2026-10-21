@@ -55,7 +55,7 @@ object Store {
         Cmd("d5", "Node.js ইনস্টল", "pkg install -y nodejs"),
         Cmd("d6", "SSH সার্ভার চালু", "pkg install -y openssh && sshd && echo 'sshd চালু, পোর্ট 8022' && whoami"),
         Cmd("d7", "ডিস্ক ব্যবহার", "df -h \$HOME"),
-        Cmd("d8", "আইপি দেখুন", "ip -4 addr | grep inet"),
+        Cmd("d8", "আইপি দেখুন", "(command -v ifconfig >/dev/null || pkg install -y net-tools) && ifconfig 2>/dev/null | grep -E \"inet |wlan|rmnet\" || /system/bin/ip -4 addr 2>/dev/null | grep inet"),
         Cmd("d9", "সিস্টেম তথ্য", "uname -a && echo && free -h 2>/dev/null | head -3"),
         Cmd("d10", "🖥 কম্পিউটার মোড (হালকা ডেস্কটপ)",
             "pkg install -y x11-repo && pkg install -y termux-x11-nightly openbox tint2 xterm pcmanfm && " +
@@ -81,6 +81,8 @@ object Store {
         if (sp(c).getInt("ver", 1) < 2) { out.forEach { it.background = true }; changed = true }
         // স্টোরেজ অনুমতি ও কম্পিউটার মোডে Termux-এর আসল পর্দা লাগে (Android-এর অনুমতি-পর্দা/ডেস্কটপ), ব্যাকগ্রাউন্ডে চললে কিছুই হয় না
         if (sp(c).getInt("ver", 1) < 3) { out.filter { it.id == "d2" || it.id == "d10" }.forEach { it.background = false }; changed = true }
+        // পুরনো "ip" কমান্ড Termux-এ নেই (ip: command not found) — নতুনটা দিয়ে বদলাই
+        if (sp(c).getInt("ver", 1) < 4) { out.filter { it.id == "d8" && it.script == "ip -4 addr | grep inet" }.forEach { it.script = defaults.first { d -> d.id == "d8" }.script }; changed = true }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -89,7 +91,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 3)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 4)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 
