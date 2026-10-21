@@ -235,7 +235,10 @@ class MainActivity : Activity() {
                     "http", "https" -> return false
                     "termux" -> {
                         // শুধু আমাদের নিজস্ব হোম পেজ থেকেই Termux কমান্ড চলবে; অন্য কোনো সাইট পারবে না
-                        if (v.url?.startsWith(Home.BASE) == true) termuxAction(u, t)
+                        // v.url ডেটা-লোড করা পেজে অনির্ভরযোগ্য (null/about:blank হতে পারে), তাই ট্যাবের নিজের url-ও দেখি
+                        if (v.url?.startsWith(Home.BASE) == true || t.url.startsWith(Home.BASE)) {
+                            handler.post { try { termuxAction(u, t) } catch (e: Exception) { Toast.makeText(this@MainActivity, "ত্রুটি: ${e.message}", Toast.LENGTH_LONG).show() } }
+                        } else Toast.makeText(this@MainActivity, "এই পেজ থেকে Termux কমান্ড চলে না", Toast.LENGTH_SHORT).show()
                         return true
                     }
                     "tel", "mailto" -> try { startActivity(Intent(Intent.ACTION_VIEW, u)) } catch (_: Exception) {}
@@ -351,7 +354,8 @@ class MainActivity : Activity() {
         val id = segs.lastOrNull() ?: ""
         when (kind) {
             "run" -> {
-                val cmd = Store.all(this).firstOrNull { it.id == id } ?: return
+                val cmd = Store.all(this).firstOrNull { it.id == id }
+                if (cmd == null) { Toast.makeText(this, "কমান্ড পাওয়া যায়নি, হোম রিফ্রেশ করুন", Toast.LENGTH_SHORT).show(); return }
                 if (Runner.installed(this) && !Runner.hasPermission(this)) { askRunPermission(true); return }
                 val (job, err) = Runner.run(this, cmd)
                 if (err != null) AlertDialog.Builder(this).setTitle("চালানো যায়নি").setMessage(err).setPositiveButton("ঠিক আছে", null).show()
