@@ -80,7 +80,7 @@ draw();
     fun html(c: Context): String {
         val ready = Runner.installed(c) && Runner.hasPermission(c)
         val cards = Store.all(c).joinToString("") { d ->
-            "<div class=card><a class=run href='termux://run/${d.id}'><b>▶ ${esc(d.title)}</b><small>${esc(d.script)}</small></a>" +
+            "<div class=card><a class=run href='termux://run/${d.id}'>${esc(d.title)}</a>" +
                 "<a class=ed href='termux://edit/${d.id}'>✎</a></div>"
         }
         val warn = if (ready) "" else
@@ -91,9 +91,10 @@ body{font-family:system-ui,sans-serif;margin:0;padding:14px;background:#f3f4f6;c
 h1{font-size:20px;margin:6px 2px 2px}h2{font-size:15px;margin:18px 2px 8px;color:#374151}
 .m{color:#6b7280;font-size:13px}.warn{background:#fef3c7;color:#78350f;border-radius:12px;padding:12px;margin:10px 0;font-size:13.5px}
 code{background:#fde68a;padding:2px 4px;border-radius:4px;word-break:break-all;font-size:12px}
-.card{display:flex;background:#fff;border-radius:14px;margin-bottom:9px;overflow:hidden}
-.run{flex:1;padding:12px 14px;color:#111827;text-decoration:none}.run small{display:block;color:#6b7280;font:11.5px monospace;margin-top:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:70vw}
-.ed{padding:12px 16px;color:#6b7280;text-decoration:none;display:flex;align-items:center}
+.g{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px}@media(min-width:520px){.g{grid-template-columns:repeat(4,1fr)}}
+.card{position:relative;background:#fff;border-radius:14px;overflow:hidden}
+.run{display:flex;align-items:center;justify-content:center;text-align:center;min-height:68px;padding:10px 8px;color:#111827;text-decoration:none;font-size:13px;font-weight:600;line-height:1.35;overflow-wrap:anywhere}
+.ed{position:absolute;top:0;right:0;padding:5px 8px;color:#9ca3af;text-decoration:none;font-size:12px}
 .add{display:block;text-align:center;padding:12px;background:#111827;color:#fff;border-radius:14px;text-decoration:none;margin-top:4px}
 .job{display:block;text-decoration:none;color:inherit;background:#fff;border-radius:12px;padding:10px 12px;margin-bottom:8px}
 .mb{height:5px;background:#e5e7eb;border-radius:3px;overflow:hidden;margin:7px 0 2px}.mb i{display:block;height:100%;background:#2563eb}.mb i.ind{width:30%;animation:mv 1.1s ease-in-out infinite}.mb i.okb{width:100%;background:#16a34a}.mb i.fb{width:100%;background:#dc2626}@keyframes mv{0%{margin-left:-30%}100%{margin-left:100%}}
@@ -102,7 +103,7 @@ pre{background:#111827;color:#d1fae5;border-radius:8px;padding:8px;font-size:11.
 </style></head><body>
 <h1>Termux Browser</h1><div class=m>কমান্ডে চাপলে নতুন ট্যাবে কাজ চলবে — সেখানেই লাইভ আউটপুট, সময় আর প্রগ্রেস দেখা যাবে।</div>
 $warn
-<h2>কমান্ড</h2>$cards<a class=add href='termux://edit/new'>＋ নতুন কমান্ড</a>
+<h2>কমান্ড</h2><div class=g>$cards</div><a class=add href='termux://edit/new'>＋ নতুন কমান্ড</a>
 <h2>চলমান ও শেষ হওয়া কাজ</h2><div id=jobs>${jobsHtml()}</div>
 </body></html>"""
     }
