@@ -177,11 +177,15 @@ class MainActivity : Activity() {
         askRunPermission()
         askBackgroundSetup()
         if (pendingInstall && packageManager.canRequestPackageInstalls()) { pendingInstall = false; startUpdate() }
-        val sp = Store.prefs(this)
-        if (System.currentTimeMillis() - sp.getLong("upd_t", 0L) > 60 * 1000L) {
-            sp.edit().putLong("upd_t", System.currentTimeMillis()).apply()
-            Thread { val i = Updater.check(); runOnUiThread { upd = i?.takeIf { it.v > Updater.curVer(this) }; showBanner() } }.start()
-        } else showBanner()
+        handler.removeCallbacks(updCheck); updCheck.run()
+    }
+
+    // কোনো সময়ের বাধা নেই: অ্যাপ খুললেই খোঁজে, আর সামনে থাকলে প্রতি ২০ সেকেন্ডে আবার খোঁজে
+    private val updCheck = object : Runnable {
+        override fun run() {
+            Thread { val i = Updater.check(); runOnUiThread { if (i != null) { upd = i.takeIf { it.v > Updater.curVer(this@MainActivity) } }; showBanner() } }.start()
+            handler.postDelayed(this, 20000L)
+        }
     }
 
     private fun showBanner() {
@@ -211,6 +215,7 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
+        handler.removeCallbacks(updCheck)
         try { unregisterReceiver(rx) } catch (_: Exception) {}
         Live.onUpdate = null
         save()
