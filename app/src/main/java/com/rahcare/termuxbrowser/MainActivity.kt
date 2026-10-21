@@ -178,7 +178,7 @@ class MainActivity : Activity() {
         askBackgroundSetup()
         if (pendingInstall && packageManager.canRequestPackageInstalls()) { pendingInstall = false; startUpdate() }
         val sp = Store.prefs(this)
-        if (System.currentTimeMillis() - sp.getLong("upd_t", 0L) > 30 * 60 * 1000L) {
+        if (System.currentTimeMillis() - sp.getLong("upd_t", 0L) > 60 * 1000L) {
             sp.edit().putLong("upd_t", System.currentTimeMillis()).apply()
             Thread { val i = Updater.check(); runOnUiThread { upd = i?.takeIf { it.v > Updater.curVer(this) }; showBanner() } }.start()
         } else showBanner()
